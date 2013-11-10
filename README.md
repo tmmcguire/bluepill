@@ -1,7 +1,7 @@
 bluepill
 ========
 
-A small avoider game, written in [Elm](www.elm-lang.org).
+A small avoider game, written in [Elm](http://elm-lang.org).
 
 ---------------------------------------------------------
 
