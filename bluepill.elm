@@ -18,9 +18,6 @@ vecMulS (x, y) s = (x * s, y * s)
 vecLen : Vec -> Float
 vecLen (x, y) = sqrt <| x * x + y * y
 
-toFloatVec : (Int, Int) -> Vec
-toFloatVec (x, y) = (toFloat x, toFloat y)
-
 rndRange : Float -> Float -> Float -> Float
 rndRange rnd start end = start + (end - start) * rnd
 
@@ -93,7 +90,6 @@ stepGame {time, rnd, lclick, mpos} ({accm, plyr, objs, state, score} as game) =
       hitBlue = hitColor lightBlue
       hitRed = hitColor lightRed
       untouched = filter (not . hit) culled
-      clickToPlay = if lclick then Play else state
       d = 0.1 in 
         case state of
           Play  -> { game | accm <- if accm > d then 0 else accm + time
