@@ -90,11 +90,12 @@ stepGame {time, rnd, lclick, mpos} ({accm, plyr, objs, state, score} as game) =
       hitBlue = hitColor lightBlue
       hitRed = hitColor lightRed
       untouched = filter (not . hit) culled
-      d = 0.1 in 
-        case state of
-          Play  -> { game | accm <- if accm > d then 0 else accm + time
+      spawnInterval = 0.1 
+  in 
+      case state of
+          Play  -> { game | accm <- if accm > spawnInterval then 0 else accm + time
                           , plyr <- stepPlayer plyr mpos
-                          , objs <- if | accm > d -> newPill rnd :: untouched
+                          , objs <- if | accm > spawnInterval -> newPill rnd :: untouched
                                        | otherwise -> untouched
                           , state <- if hitRed || playerOut plyr then Over else state 
                           , score <- if hitBlue then score + 1 else score }
@@ -120,10 +121,11 @@ render (w, h) {plyr, objs, state, score} =
                   ,tf 30 2 <| "Score: " ++ show score
                   ,tf  0 1 "Click to Restart" ]
         _     -> [ tf  0 4 (show score) ]
-      forms = message ++ (map formPill (plyr :: objs)) in
-        color lightGray <| container w h middle
-                        <| color white
-                        <| collage width height forms
+      forms = message ++ (map formPill (plyr :: objs))
+  in
+      color lightGray <| container w h middle
+                      <| color white
+                      <| collage width height forms
 
 
 main = lift2 render Window.dimensions <| foldp stepGame gameDefault input
