@@ -2,6 +2,7 @@ import Mouse
 import Window
 import Random
 
+
 -- HELPER FUNCTIONS
 
 type Vec = (Float, Float)
@@ -27,14 +28,19 @@ relativeCenter (w, h) (x, y) = ( toFloat x - (toFloat w / 2),
 
 -- INPUT
 
-type Input = {time:Float, rnd:(Float, Float), lclick:Bool, mpos:Vec}
+data Event = Tick Float | Add Pill | Click | Move Vec
 
-input : Signal Input
-input = let delta = fps 60 in 
-         Input <~ lift inSeconds delta
-                ~ lift2 (,) (Random.float delta) (Random.float delta)
-                ~ Mouse.isClicked 
-                ~ sampleOn delta (lift2 relativeCenter Window.dimensions Mouse.position)
+sigRands : Int -> Float -> Signal [Float]
+sigRands n sec = 
+  let tick = lift (\_ -> n) (every (second * sec))
+  in  Random.floatList tick
+
+
+event : Signal Event
+event = merges [ lift2 (\d p -> Move (relativeCenter d p)) Window.dimensions Mouse.position
+                ,lift (\_ -> Click) Mouse.isClicked 
+                ,lift (\rs -> case rs of p::c::_ -> Add (newPill p c)) (sigRands 2 0.12)
+                ,lift (Tick . inSeconds) (fps 60) ]
 
 -- MODEL
 
@@ -56,23 +62,23 @@ player = { defaultPill | pos <- (0, -50)
                        
 data State = Start | Play | Over | Clear
 
-type Game = {accm:Float, plyr:Pill, objs:[Pill], state:State, score:Int}
+type Game = {plyr:Pill, objs:[Pill], state:State, score:Int}
 
 gameDefault : Game
-gameDefault = {accm=0, plyr=player, objs=[], state=Start, score=0}
+gameDefault = {plyr=player, objs=[], state=Start, score=0}
 
 
 -- UPDATE
 
 stepPill : Float -> Pill -> Pill
-stepPill t p = { p | pos <- vecAdd p.pos <| vecMulS p.vel t }
+stepPill dt p = { p | pos <- vecAdd p.pos <| vecMulS p.vel dt }
 
 aboveGround : Pill -> Bool
 aboveGround {pos} = let (_, y) = pos in y > -hHeight
 
-newPill : (Float, Float) -> Pill
-newPill (rp, rc) = { defaultPill | pos <- (rndRange rp -hWidth hWidth, snd defaultPill.pos)
-                                 , col <- if rc < 0.1 then lightBlue else defaultPill.col }
+newPill : Float -> Float -> Pill
+newPill rp rc = { defaultPill | pos <- (rndRange rp -hWidth hWidth, snd defaultPill.pos)
+                              , col <- if rc < 0.1 then lightBlue else defaultPill.col }
                
 stepPlayer : Pill -> Vec -> Pill
 stepPlayer p mp = { p | pos <- mp }
@@ -80,29 +86,38 @@ stepPlayer p mp = { p | pos <- mp }
 playerOut : Pill -> Bool
 playerOut {pos} = let (x, y) = pos in abs x > hWidth || abs y > hHeight
 
-stepGame : Input -> Game -> Game
-stepGame {time, rnd, lclick, mpos} ({accm, plyr, objs, state, score} as game) =
-  let moved = map (stepPill time) objs
-      culled = filter aboveGround moved
-      hit pill = (vecLen <| vecSub plyr.pos pill.pos) < plyr.rad + pill.rad
-      touched = filter hit culled
-      hitColor c = not <| isEmpty <| filter (\{col} -> col == c) touched
-      hitBlue = hitColor lightBlue
-      hitRed = hitColor lightRed
-      untouched = filter (not . hit) culled
-      spawnInterval = 0.1 
-  in 
-      case state of
-          Play  -> { game | accm <- if accm > spawnInterval then 0 else accm + time
-                          , plyr <- stepPlayer plyr mpos
-                          , objs <- if | accm > spawnInterval -> newPill rnd :: untouched
-                                       | otherwise -> untouched
-                          , state <- if hitRed || playerOut plyr then Over else state 
-                          , score <- if hitBlue then score + 1 else score }
-          Start -> { gameDefault | state <- if lclick then Play else state }
-          Clear -> { gameDefault | state <- Play }
-          Over  -> { gameDefault | state <- if lclick then Clear else state
-                                 , score <- score }
+stepPlay : Event -> Game -> Game
+stepPlay event ({plyr, objs, state, score} as game) = 
+  case event of
+    Tick dt  -> let culled = filter aboveGround objs
+                    hit pill = (vecLen <| vecSub plyr.pos pill.pos) < plyr.rad + pill.rad
+                    touched = filter hit culled
+                    hitColor c = not <| isEmpty <| filter (\{col} -> col == c) touched
+                    hitBlue = hitColor lightBlue
+                    hitRed = hitColor lightRed
+                    untouched = filter (not . hit) culled
+                in
+                    { game | objs <- map (stepPill dt) untouched                       
+                           , state <- if hitRed || playerOut plyr then Over else state
+                           , score <- if hitBlue then score + 1 else score }
+    Move mp  -> { game | plyr <- stepPlayer plyr mp }
+    Add pill -> { game | objs <- pill :: objs }
+    _        -> game
+
+click : Event -> Bool
+click event = 
+  case event of
+    Click -> True
+    _     -> False
+
+stepGame : Event -> Game -> Game
+stepGame event ({state, score} as game) =
+  case state of
+    Play  -> stepPlay event game
+    Start -> { gameDefault | state <- if click event then Play else state }
+    Clear -> { gameDefault | state <- Play }
+    Over  -> { gameDefault | state <- if click event then Clear else state
+                           , score <- score }
 
 
 -- DISPLAY
@@ -128,4 +143,4 @@ render (w, h) {plyr, objs, state, score} =
                       <| collage width height forms
 
 
-main = lift2 render Window.dimensions <| foldp stepGame gameDefault input
+main = lift2 render Window.dimensions <| foldp stepGame gameDefault event
