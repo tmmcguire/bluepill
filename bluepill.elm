@@ -2,6 +2,12 @@ import Mouse
 import Window
 import Random
 
+-- CONFIG
+speed = 500
+spawnDelay = 57 / speed
+sizePlayer = 15
+sizePill = sizePlayer
+frameRate = 60
 
 -- HELPER FUNCTIONS
 
@@ -36,13 +42,11 @@ sigRands n sec =
 
 data Event = Tick Float | Add Pill | Click | Move Vec
 
-delta = 60
-
 event : Signal Event
-event = merges [ lift2 (\d p -> Move (relativeCenter d p)) Window.dimensions (sampleOn (fps (delta + 1)) Mouse.position)
+event = merges [ lift2 (\d p -> Move (relativeCenter d p)) Window.dimensions (sampleOn (fps (frameRate + 1)) Mouse.position)
                 ,lift (\_ -> Click) Mouse.isClicked 
-                ,lift (\rs -> case rs of p::c::_ -> Add (newPill p c)) (sigRands 2 0.12)
-                ,lift (Tick . inSeconds) (fps delta) ]
+                ,lift (\rs -> case rs of p::c::_ -> Add (newPill p c)) (sigRands 2 spawnDelay)
+                ,lift (Tick . inSeconds) (fps frameRate) ]
 
 -- MODEL
 
@@ -53,13 +57,13 @@ type Pill = {pos:Vec, vel:Vec, rad:Float, col:Color}
 
 defaultPill : Pill
 defaultPill = { pos = (0, hHeight)
-               ,vel = (0, -500)
-               ,rad = 15
+               ,vel = (0, -speed)
+               ,rad = sizePill
                ,col = lightRed }
                
 player : Pill
 player = { defaultPill | pos <- (0, -50)
-                       , rad <- 15
+                       , rad <- sizePlayer
                        , col <- black }
                        
 data State = Start | Play | Over | Clear
