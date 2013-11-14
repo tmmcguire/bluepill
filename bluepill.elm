@@ -26,14 +26,15 @@ relativeCenter : (Int, Int) -> (Int, Int) -> Vec
 relativeCenter (w, h) (x, y) = ( toFloat x - (toFloat w / 2),
                                -(toFloat y - (toFloat h / 2)))
 
--- INPUT
-
-data Event = Tick Float | Add Pill | Click | Move Vec
-
 sigRands : Int -> Float -> Signal [Float]
 sigRands n sec = 
   let tick = lift (\_ -> n) (every (second * sec))
   in  Random.floatList tick
+
+
+-- INPUT
+
+data Event = Tick Float | Add Pill | Click | Move Vec
 
 delta = 60
 
