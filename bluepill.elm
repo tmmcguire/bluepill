@@ -35,12 +35,13 @@ sigRands n sec =
   let tick = lift (\_ -> n) (every (second * sec))
   in  Random.floatList tick
 
+delta = 60
 
 event : Signal Event
-event = merges [ lift2 (\d p -> Move (relativeCenter d p)) Window.dimensions Mouse.position
+event = merges [ lift2 (\d p -> Move (relativeCenter d p)) Window.dimensions (sampleOn (fps (delta + 1)) Mouse.position)
                 ,lift (\_ -> Click) Mouse.isClicked 
                 ,lift (\rs -> case rs of p::c::_ -> Add (newPill p c)) (sigRands 2 0.12)
-                ,lift (Tick . inSeconds) (fps 60) ]
+                ,lift (Tick . inSeconds) (fps delta) ]
 
 -- MODEL
 
