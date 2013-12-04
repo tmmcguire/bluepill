@@ -4,12 +4,19 @@ import Random
 
 -- CONFIG
 speed = 500
-spawnDelay = 57 / speed
-sizePlayer = 15
-sizePill = sizePlayer
-frameRate = 60
+spawnInterval = 57 / speed
+sizePill = 15
+sizePlayer = sizePill
+
+(width, height) = (400, 400)
+(hWidth, hHeight) = (width / 2, height / 2)
 
 -- HELPER FUNCTIONS
+relativeMouse : (Int, Int) -> (Int, Int) -> (Int, Int)
+relativeMouse (ox, oy) (x, y) = (x - ox, -(y - oy))
+
+center : (Int, Int) -> (Int, Int)
+center (w, h) = (div w 2, div h 2)
 
 type Vec = (Float, Float)
 
@@ -19,134 +26,117 @@ vecAdd (ax, ay) (bx, by) = (ax + bx, ay + by)
 vecSub : Vec -> Vec -> Vec
 vecSub (ax, ay) (bx, by) = (ax - bx, ay - by)
 
-vecMulS : Vec -> Float -> Vec
-vecMulS (x, y) s = (x * s, y * s)
-
 vecLen : Vec -> Float
-vecLen (x, y) = sqrt <| x * x + y * y
+vecLen (x, y) = sqrt (x * x + y * y)
 
-rndRange : Float -> Float -> Float -> Float
-rndRange rnd start end = start + (end - start) * rnd
+vecMulS : Vec -> Time -> Vec
+vecMulS (x, y) t = (x * t, y * t)
 
-relativeCenter : (Int, Int) -> (Int, Int) -> Vec
-relativeCenter (w, h) (x, y) = ( toFloat x - (toFloat w / 2),
-                               -(toFloat y - (toFloat h / 2)))
-
-sigRands : Int -> Float -> Signal [Float]
-sigRands n sec = 
-  let tick = lift (\_ -> n) (every (second * sec))
-  in  Random.floatList tick
-
+tf : Float -> Float -> String -> Form
+tf y scl str = toText str |> Text.color gray
+                          |> text
+                          |> toForm
+                          |> scale scl
+                          |> move (0, y)
 
 -- INPUT
+delta = (fps 30)
+input = (,) <~ lift inSeconds delta
+             ~ sampleOn delta (lift2 relativeMouse (lift center Window.dimensions) Mouse.position)
 
-data Event = Tick Float | Add Pill | Click | Move Vec
+rand fn sig = lift fn (Random.float sig)
+randX = rand (\r -> (width * r) - hWidth)
+randCol = rand (\r -> if r < 0.1 then lightBlue else defaultPill.col)
 
-event : Signal Event
-event = merges [ lift2 (\d p -> Move (relativeCenter d p)) Window.dimensions (sampleOn (fps (frameRate + 1)) Mouse.position)
-                ,lift (\_ -> Click) Mouse.isClicked 
-                ,lift (\rs -> case rs of p::c::_ -> Add (newPill p c)) (sigRands 2 spawnDelay)
-                ,lift (Tick . inSeconds) (fps frameRate) ]
+interval = (every (second * spawnInterval)) 
+event = merges [ lift Tick input
+                ,lift2 (\x col -> Add (newPill x col)) (randX interval) (randCol interval) 
+                ,lift (\_ -> Click) Mouse.isClicked ]
 
 -- MODEL
-
-(width, height) = (450, 450)
-(hWidth, hHeight) = (225, 225)
-
 type Pill = {pos:Vec, vel:Vec, rad:Float, col:Color}
 
-defaultPill : Pill
 defaultPill = { pos = (0, hHeight)
                ,vel = (0, -speed)
                ,rad = sizePill
                ,col = lightRed }
-               
-player : Pill
-player = { defaultPill | pos <- (0, -50)
-                       , rad <- sizePlayer
-                       , col <- black }
-                       
-data State = Start | Play | Over | Clear
 
-type Game = {plyr:Pill, objs:[Pill], state:State, score:Int}
+defaultPlayer = { defaultPill | pos <- (0, -hHeight - sizePlayer)
+                              , rad <- sizePlayer
+                              , col <- black }
 
-gameDefault : Game
-gameDefault = {plyr=player, objs=[], state=Start, score=0}
+data State = Start | Play | Over
+type Game = {player:Pill, pills:[Pill], score:Int, state:State}
 
+defaultGame = { player = defaultPlayer
+               ,pills = [] 
+               ,score = 0 
+               ,state = Start }
+
+newPill : Float -> Color -> Pill
+newPill x col = { defaultPill | pos <- (x, hHeight)
+                              , col <- col }
 
 -- UPDATE
-
-stepPill : Float -> Pill -> Pill
-stepPill dt p = { p | pos <- vecAdd p.pos <| vecMulS p.vel dt }
-
-aboveGround : Pill -> Bool
-aboveGround {pos} = let (_, y) = pos in y > -hHeight
-
-newPill : Float -> Float -> Pill
-newPill rp rc = { defaultPill | pos <- (rndRange rp -hWidth hWidth, snd defaultPill.pos)
-                              , col <- if rc < 0.1 then lightBlue else defaultPill.col }
-               
-stepPlayer : Pill -> Vec -> Pill
-stepPlayer p mp = { p | pos <- mp }
-
-playerOut : Pill -> Bool
-playerOut {pos} = let (x, y) = pos in abs x > hWidth || abs y > hHeight
+data Event = Tick (Time, (Int, Int)) | Add Pill | Click
 
 stepPlay : Event -> Game -> Game
-stepPlay event ({plyr, objs, state, score} as game) = 
-  case event of
-    Tick dt  -> let culled = filter aboveGround objs
-                    hit pill = (vecLen <| vecSub plyr.pos pill.pos) < plyr.rad + pill.rad
-                    touched = filter hit culled
-                    hitColor c = not <| isEmpty <| filter (\{col} -> col == c) touched
-                    hitBlue = hitColor lightBlue
-                    hitRed = hitColor lightRed
-                    untouched = filter (not . hit) culled
-                in
-                    { game | objs <- map (stepPill dt) untouched                       
-                           , state <- if hitRed || playerOut plyr then Over else state
-                           , score <- if hitBlue then score + 1 else score }
-    Move mp  -> { game | plyr <- stepPlayer plyr mp }
-    Add pill -> { game | objs <- pill :: objs }
-    _        -> game
+stepPlay event g = 
+    case event of
+        Tick (t, mp) -> let hit pill = (vecLen <| vecSub g.player.pos pill.pos) < g.player.rad + pill.rad
+                            unculled = filter (\{pos} -> snd pos > -hHeight) g.pills
+                            untouched = filter (not . hit) unculled
+                            touched = filter hit unculled
+                            hitColor c = not <| isEmpty <| filter (\{col} -> col == c) touched
+                            hitBlue = hitColor lightBlue
+                            hitRed = hitColor lightRed
+                            out = let (x, y) = mp in abs (toFloat x) > hWidth || abs (toFloat y) > hHeight
+                            g' = { g | player <- stepPlayer mp g.player
+                                     , pills  <- map (stepPill t) untouched 
+                                     , score  <- if hitBlue then g.score + 1 else g.score }
+                        in  if hitRed || out then { defaultGame | score <-  g'.score
+                                                                , state <- Over } else g'
+        Add p        -> { g | pills <- p :: g.pills }
+        Click        -> g
+    
 
 click : Event -> Bool
 click event = 
-  case event of
-    Click -> True
-    _     -> False
+    case event of
+        Click -> True
+        _     -> False
 
 stepGame : Event -> Game -> Game
-stepGame event ({state, score} as game) =
-  case state of
-    Play  -> stepPlay event game
-    Start -> { gameDefault | state <- if click event then Play else state }
-    Clear -> { gameDefault | state <- Play }
-    Over  -> { gameDefault | state <- if click event then Clear else state
-                           , score <- score }
+stepGame event ({state} as g) = 
+    let playGame = { defaultGame | state <- Play }
+        toPlay = if click event then playGame else g
+    in case state of
+        Play  -> stepPlay event g
+        _     -> toPlay
+
+stepPlayer : (Int, Int) -> Pill -> Pill
+stepPlayer (x, y) p = { p | pos <- (toFloat x, toFloat y) }
+
+stepPill : Time -> Pill -> Pill
+stepPill t p = { p | pos <- vecAdd p.pos <| vecMulS p.vel t }
 
 
 -- DISPLAY
-
-tf : Float -> Float -> String -> Form
-tf y scl str = move (0, y) <| scale scl <| toForm <| text <| Text.color gray
-                                                          <| toText str
-
 render : (Int, Int) -> Game -> Element
-render (w, h) {plyr, objs, state, score} = 
-  let formPill {rad, col, pos} = circle rad |> filled col |> move pos
-      message = case state of 
-        Start -> [ tf 40 3 "BluepiLL"
-                  ,tf  0 1 "Click to Start" ]
-        Over  -> [ tf 70 3 "Game Over"
-                  ,tf 30 2 <| "Score: " ++ show score
-                  ,tf  0 1 "Click to Restart" ]
-        _     -> [ tf  0 4 (show score) ]
-      forms = message ++ (map formPill (plyr :: objs))
-  in
-      color lightGray <| container w h middle
-                      <| color white
-                      <| collage width height forms
+render (w, h) g = 
+    let formPill {rad, col, pos} = circle rad |> filled col
+                                              |> move pos
+        txts = case g.state of
+            Start -> [ tf  70 4 "BluePiLL"
+                      ,tf   0 2 "Click to Start" ]
+            Play  -> [ tf   0 4 (show g.score) ]
+            Over  -> [ tf  70 4 "Game Over"
+                      ,tf   0 4 (show g.score) 
+                      ,tf -50 2 "Click to Restart" ]
+        forms = txts ++ (map formPill <| g.player :: g.pills)
+    in  color lightGray <| container w h middle
+                        <| color white
+                        <| collage width height forms
 
 
-main = lift2 render Window.dimensions <| foldp stepGame gameDefault event
+main = render <~ Window.dimensions ~ foldp stepGame defaultGame event
