@@ -34,7 +34,7 @@ vecMulS (x, y) t = (x * t, y * t)
 
 tf : Float -> Float -> String -> Form
 tf y scl str = toText str |> Text.color gray
-                          |> text
+                          |> centered
                           |> toForm
                           |> scale scl
                           |> move (0, y)
@@ -44,10 +44,7 @@ delta = (fps 30)
 input = (,) <~ lift inSeconds delta
              ~ sampleOn delta (lift2 relativeMouse (lift center Window.dimensions) Mouse.position)
 
--- Temporary replacement for Random.float, which is broken in 0.11
-randFloat sig = (lift (\x -> x / 100) (lift toFloat (Random.range 0 100 sig)))
-
-rand fn sig = lift fn (randFloat sig)
+rand fn sig = lift fn (Random.float sig)
 randX = rand (\r -> (width * r) - hWidth)
 randCol = rand (\r -> if r < 0.1 then lightBlue else defaultPill.col)
 
